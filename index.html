@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convert MP4/MOV to GIF + ASCII</title>
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #4F46E5;
+            --primary-hover: #4338CA;
+            --bg-color: #F3F4F6;
+            --card-bg: #FFFFFF;
+            --text-main: #1F2937;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        h2 { margin-top: 0; color: var(--text-main); }
+
+        .upload-area {
+            border: 2px dashed #D1D5DB;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background-color: #F9FAFB;
+        }
+
+        input[type="file"] { width: 100%; margin-top: 10px; }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+
+        button:disabled { background-color: #9CA3AF; cursor: not-allowed; }
+        button:hover:not(:disabled) { background-color: var(--primary-hover); }
+
+        #status { margin-top: 15px; font-size: 14px; color: #6B7280; }
+
+        #result-area { margin-top: 20px; display: none; }
+
+        #output-gif {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 15px;
+        }
+
+        .download-btn {
+            display: inline-block;
+            background-color: #10B981;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        
+        .download-btn:hover { background-color: #059669; }
+
+        /* Style for ASCII box */
+        .ascii-container {
+            background-color: #000000;
+            color: #00FF41; /* Matrix style green color */
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+        }
+
+        #ascii-display {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 8px;
+            line-height: 8px;
+            text-align: left;
+            margin: 0;
+            white-space: pre;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Create GIF & ASCII Animation</h2>
+        <p style="font-size: 14px; color: #6B7280;">Upload MP4 or MOV file (Max 50MB)</p>
+        
+        <div class="upload-area">
+            <input type="file" id="video-upload" accept="video/mp4,video/quicktime,.mov,video/*">
+        </div>
+
+        <button id="convert-btn" disabled>Start Conversion</button>
+        
+        <div id="status">Waiting for video file...</div>
+
+        <div id="result-area">
+            <h3>Completed!</h3>
+            <img id="output-gif" alt="GIF Preview">
+            <br>
+            <a id="download-link" class="download-btn" href="#" download="converted.gif">Download GIF</a>
+            
+            <hr style="border: 0; border-top: 1px solid #E5E7EB; margin: 20px 0;">
+            
+            <h3>ASCII Animation</h3>
+            <div class="ascii-container">
+                <pre id="ascii-display"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        const ffmpeg = createFFmpeg({ 
+            log: true,
+            corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+        });
+
+        const videoUpload = document.getElementById('video-upload');
+        const convertBtn = document.getElementById('convert-btn');
+        const statusText = document.getElementById('status');
+        const resultArea = document.getElementById('result-area');
+        const outputGif = document.getElementById('output-gif');
+        const downloadLink = document.getElementById('download-link');
+        const asciiDisplay = document.getElementById('ascii-display');
+
+        const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+        const density = "Ñ@#W$9876543210?!abc;:+=-,._ "; 
+
+        videoUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) {
+                convertBtn.disabled = true;
+                return;
+            }
+
+            if (file.size > MAX_FILE_SIZE) {
+                alert('File size exceeds 50MB. Please select a new file.');
+                videoUpload.value = '';
+                convertBtn.disabled = true;
+                statusText.innerText = 'File is too large';
+                return;
+            }
+
+            convertBtn.disabled = false;
+            statusText.innerText = `Selected file: ${file.name} (Ready to convert)`;
+        });
+
+        convertBtn.addEventListener('click', async () => {
+            const file = videoUpload.files[0];
+            if (!file) return;
+
+            convertBtn.disabled = true;
+            resultArea.style.display = 'none';
+            statusText.innerText = 'Loading processing tools...';
+
+            try {
+                if (!ffmpeg.isLoaded()) {
+                    await ffmpeg.load();
+                }
+
+                statusText.innerText = 'Processing GIF... (This may take a moment)';
+                
+                const ext = file.name.split('.').pop().toLowerCase();
+                const inputFileName = `input.${ext}`;
+
+                ffmpeg.FS('writeFile', inputFileName, await fetchFile(file));
+
+                await ffmpeg.run(
+                    '-i', inputFileName, 
+                    '-vf', 'fps=10,scale=-2:240:flags=lanczos,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse', 
+                    '-loop', '0', 
+                    'output.gif'
+                );
+
+                const data = ffmpeg.FS('readFile', 'output.gif');
+                const gifBlob = new Blob([data.buffer], { type: 'image/gif' });
+                const gifUrl = URL.createObjectURL(gifBlob);
+
+                outputGif.src = gifUrl;
+                downloadLink.href = gifUrl;
+                downloadLink.download = `animated_${Math.floor(Date.now() / 1000)}.gif`;
+
+                // Start playing ASCII video
+                startAsciiAnimation(file);
+
+                resultArea.style.display = 'block';
+                statusText.innerText = 'Conversion successful!';
+
+                ffmpeg.FS('unlink', inputFileName);
+                ffmpeg.FS('unlink', 'output.gif');
+
+            } catch (error) {
+                console.error(error);
+                statusText.innerHTML = `<span style="color: red; font-weight: bold;">Error: ${error.message || error}</span>`;
+            } finally {
+                convertBtn.disabled = false;
+            }
+        });
+
+        // Function to create ASCII Animation (Updated to fix black screen on mobile)
+        function startAsciiAnimation(file) {
+            // Clear previously hidden video (if any) to keep DOM clean
+            const oldVideo = document.getElementById('hidden-ascii-video');
+            if (oldVideo) {
+                oldVideo.remove();
+            }
+
+            const video = document.createElement('video');
+            video.id = 'hidden-ascii-video';
+            video.src = URL.createObjectURL(file);
+            video.muted = true;
+            video.loop = true;
+            
+            // Settings to unlock auto-play on mobile
+            video.setAttribute('playsinline', ''); 
+            video.setAttribute('webkit-playsinline', ''); 
+            video.setAttribute('autoplay', '');
+            video.style.display = 'none'; // Hide from web page
+            document.body.appendChild(video); 
+
+            video.play().catch(err => {
+                console.error("Mobile blocked auto-play:", err);
+            });
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+            const asciiWidth = 60; // Number of horizontal characters
+
+            video.addEventListener('loadeddata', () => {
+                function drawAscii() {
+                    if (video.paused || video.ended) return;
+
+                    const aspect = video.videoHeight / video.videoWidth;
+                    // Check aspect ratio to prevent image height calculation bugs
+                    if (isNaN(aspect)) {
+                        requestAnimationFrame(drawAscii);
+                        return;
+                    }
+
+                    const asciiHeight = Math.floor(asciiWidth * aspect * 0.55);
+
+                    canvas.width = asciiWidth;
+                    canvas.height = asciiHeight;
+
+                    ctx.drawImage(video, 0, 0, asciiWidth, asciiHeight);
+                    const imageData = ctx.getImageData(0, 0, asciiWidth, asciiHeight);
+                    const data = imageData.data;
+
+                    let asciiStr = "";
+                    for (let y = 0; y < asciiHeight; y++) {
+                        for (let x = 0; x < asciiWidth; x++) {
+                            const offset = (y * asciiWidth + x) * 4;
+                            const r = data[offset];
+                            const g = data[offset + 1];
+                            const b = data[offset + 2];
+                            
+                            const avg = (r + g + b) / 3;
+                            const charIndex = Math.floor(mapRange(avg, 0, 255, density.length - 1, 0));
+                            
+                            asciiStr += density[charIndex] === " " ? "&nbsp;" : density[charIndex];
+                        }
+                        asciiStr += "<br>";
+                    }
+                    
+                    asciiDisplay.innerHTML = asciiStr;
+
+                    setTimeout(() => {
+                        requestAnimationFrame(drawAscii);
+                    }, 100); 
+                }
+                
+                video.addEventListener('play', drawAscii);
+                if (!video.paused) drawAscii();
+            });
+        }
+
+        function mapRange(value, inMin, inMax, outMin, outMax) {
+            return (value - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
+        }
+    </script>
+</body>
+</html>
